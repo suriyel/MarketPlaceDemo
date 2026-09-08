@@ -2,6 +2,19 @@
   "schemaVersion": 1,
   "blueprints": [
     {
+      "id": "co-iterative-verify",
+      "title": "并线迭代开发与统一验证",
+      "description": "基于已批准规格并行准备共享基础与功能回归清单，再在大颗粒 git worktree 中并线迭代开发与并行编写验证测试用例，最终在合并后做完整功能验证并经用户决策通过。",
+      "version": "1.0.0",
+      "author": "Shannon",
+      "tags": [
+        "parallel",
+        "sdd",
+        "co-iterative-verify"
+      ],
+      "ext": {}
+    },
+    {
       "id": "hello-world",
       "title": "快速测试功能性",
       "description": "一句话描述：单节点快速检查 CLI 会话是否能启动并完成最小工作。\n适合场景：安装后冒烟、工具链连通性验证或快速排查会话启动问题。\n不适合场景：不适合真实开发、复杂工作流验证或多节点上下文传递测试。\n期望用户输入：任意简短冒烟指令，通常是“快速检查工具是否可用”。\n处理方式：fast-check 节点启动一次 CLI 会话并完成最小任务。\n输出：CLI 可启动、可响应、可完成节点的验证结果。\n简单示例：输入“检查当前工具是否能跑通”，输出一条成功完成的 fast-check 记录。",
