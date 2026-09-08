@@ -24,6 +24,18 @@
         "test"
       ],
       "ext": {}
+    },
+    {
+      "id": "project-explore-parallel",
+      "title": "项目并行探索",
+      "description": "围绕用户明确目的，对单个目标项目做快速、只读、有证据的动态并行探索。plan 先识别绿地或本次无需探索：两者均不播种任务、不启动探索 Agent、不生成报告，并以成功终态交给串接下游；需要探索时按项目规模与 module 相关性生成并校验 1–16 个专题任务。parallel_explore 最多同时启动 8 个域级分支，每个分支再按 2–5 个正交维度派发独立 Probe Agent，经证据矩阵、1–2 名 Challenger 和有预算的定向补探生成最终专题 Markdown；report 校验实际 artifact 后生成简短索引与跨专题汇总。无 audit、无报告门禁、无过程型 Markdown。适合已有代码、文档、配置或数据内容的项目；不适合没有明确探索目的、需要跨多个项目根、联网或修改/运行目标项目的任务。",
+      "version": "1.8.0",
+      "author": "Shannon",
+      "tags": [
+        "exploration",
+        "parallel"
+      ],
+      "ext": {}
     }
   ]
 }

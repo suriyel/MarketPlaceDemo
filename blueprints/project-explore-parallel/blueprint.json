@@ -1,0 +1,164 @@
+{
+  "schemaVersion": 3,
+  "id": "project-explore-parallel",
+  "version": "1.8.0",
+  "title": "项目并行探索",
+  "description": "围绕用户明确目的，对单个目标项目做快速、只读、有证据的动态并行探索。plan 先识别绿地或本次无需探索：两者均不播种任务、不启动探索 Agent、不生成报告，并以成功终态交给串接下游；需要探索时按项目规模与 module 相关性生成并校验 1–16 个专题任务。parallel_explore 最多同时启动 8 个域级分支，每个分支再按 2–5 个正交维度派发独立 Probe Agent，经证据矩阵、1–2 名 Challenger 和有预算的定向补探生成最终专题 Markdown；report 校验实际 artifact 后生成简短索引与跨专题汇总。无 audit、无报告门禁、无过程型 Markdown。适合已有代码、文档、配置或数据内容的项目；不适合没有明确探索目的、需要跨多个项目根、联网或修改/运行目标项目的任务。",
+  "startNode": "plan",
+  "nodes": [
+    {
+      "id": "plan",
+      "title": "校验输入并动态规划",
+      "x": 65,
+      "y": 160,
+      "modelTier": "heavy",
+      "terminalWhen": "status == \"ok\" && (next_input.__decision == \"Greenfield\" || next_input.__decision == \"SkipExploration\")"
+    },
+    {
+      "id": "parallel_explore",
+      "kind": "parallel",
+      "title": "并行生成专题文档",
+      "x": 350,
+      "y": 80,
+      "iterator": {
+        "kind": "tasks",
+        "tasksSchemaRef": "exploration"
+      },
+      "body": {
+        "startNode": "explore",
+        "nodes": [
+          {
+            "id": "explore",
+            "title": "目的性专题探索",
+            "x": 70,
+            "y": 45,
+            "modelTier": "fast"
+          }
+        ],
+        "edges": []
+      },
+      "maxConcurrent": 8,
+      "workspace": "readonly"
+    },
+    {
+      "id": "report",
+      "title": "索引与汇总",
+      "x": 690,
+      "y": 80,
+      "modelTier": "heavy"
+    }
+  ],
+  "edges": [
+    {
+      "from": "plan",
+      "to": "parallel_explore",
+      "decision": "Existing"
+    },
+    {
+      "from": "parallel_explore",
+      "to": "report",
+      "when": "total > 0"
+    }
+  ],
+  "tasksSchemas": {
+    "exploration": {
+      "requiredFields": {
+        "purpose": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "questions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "evidenceRequired": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "dimensions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "probeBudget": {
+          "type": "number"
+        },
+        "followupBudget": {
+          "type": "number"
+        },
+        "deliverable": {
+          "type": "string"
+        }
+      },
+      "recommendedFields": {
+        "title": {
+          "type": "string"
+        }
+      },
+      "userFields": {
+        "category": {
+          "type": "string"
+        },
+        "module": {
+          "type": "string"
+        },
+        "sourceRefs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "extensionFieldsAllowed": false,
+      "doneValues": [
+        "done"
+      ],
+      "example": {
+        "id": "T01",
+        "title": "支付模块需求到实现追踪",
+        "category": "module",
+        "module": "services/payment",
+        "purpose": "回答退款幂等要求当前如何实现",
+        "scope": [
+          "services/payment/",
+          "docs/payment/"
+        ],
+        "questions": [
+          "幂等键在哪里生成和存储？",
+          "失败重试经过哪些模块？"
+        ],
+        "evidenceRequired": [
+          "关键结论提供 file:line",
+          "文档与实现冲突时并列记录"
+        ],
+        "dimensions": [
+          "入口、边界与跨模块调用链",
+          "状态生命周期与持久化",
+          "异常、重试与幂等"
+        ],
+        "probeBudget": 3,
+        "followupBudget": 2,
+        "sourceRefs": [
+          "用户问题 Q1",
+          "@docs/refund.md"
+        ],
+        "deliverable": "T01-payment-idempotency.md"
+      }
+    }
+  },
+  "tags": [
+    "exploration",
+    "parallel"
+  ],
+  "author": "Shannon"
+}
