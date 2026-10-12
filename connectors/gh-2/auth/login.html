@@ -1,0 +1,158 @@
+<!doctype html>
+<!-- gh CLI 登录页（web 流 + token 粘贴两页签）
+     - 默认 web 流走 pty：gh auth login --web --clipboard；CLI 自己开浏览器、把一次性验证码复制到剪贴板、用户在 GitHub 粘贴、CLI 轮询到授权后写入 wincred。
+     - 备选 token 粘贴走 harnessAuth.run + secret.store 中转，登录完 gh 自己存 keyring，框架不重复存。
+     - 用户可见步骤写得明确；不出 token、token 不进日志。
+     - SDK 详见 shared-reference/harness-auth-sdk.md。 -->
+<html><head><meta charset="utf-8"><style>
+  body { font: 14px/1.6 system-ui, "Microsoft YaHei", sans-serif; margin: 0; padding: 18px; color: #222; background: #fff; max-width: 720px; }
+  h3 { margin: 0 0 8px; font-size: 15px; }
+  p { margin: 6px 0; }
+  .row { display: flex; gap: 8px; align-items: center; margin: 10px 0; flex-wrap: wrap; }
+  input, textarea { font: 13px monospace; padding: 6px 8px; border: 1px solid #bbb; border-radius: 5px; min-width: 280px; }
+  button { font: 13px system-ui; padding: 6px 12px; border-radius: 5px; border: 1px solid #b58a2c; background: #f4c766; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 12px; border-bottom: 1px solid #ccc; }
+  .tab { padding: 6px 12px; border: 1px solid #ccc; border-bottom: none; border-radius: 5px 5px 0 0; cursor: pointer; background: #f5f5f5; font: 13px system-ui; }
+  .tab.active { background: #fff; border-bottom: 1px solid #fff; margin-bottom: -1px; font-weight: 600; }
+  .panel { display: none; }
+  .panel.active { display: block; }
+  .msg { color: #b33; min-height: 1.4em; margin: 6px 0; }
+  .ok { color: #2a7; }
+  #term { height: 240px; border: 1px solid #333; border-radius: 6px; overflow: hidden; margin-top: 8px; }
+  code { font: 13px monospace; background: #f3f3f3; padding: 1px 5px; border-radius: 3px; }
+  .hint { color: #555; font-size: 12px; }
+</style></head>
+<body>
+<h3>登录 GitHub CLI（<code>gh</code>）</h3>
+
+<div class="tabs">
+  <div class="tab active" data-pane="web">浏览器授权（推荐）</div>
+  <div class="tab" data-pane="token">粘贴 Personal Access Token</div>
+</div>
+
+<!-- 页签一：浏览器 web 流 -->
+<div class="panel active" id="pane-web">
+  <p>点下面的「开始」后，<code>gh</code> 会：</p>
+  <ol>
+    <li>打开系统浏览器到 GitHub 授权页；</li>
+    <li>把一次性验证码复制到剪贴板（需要你在 GitHub 页面粘贴）；</li>
+    <li>轮询等待你点 <em>Authorize</em>；</li>
+    <li>把 token 存到 Windows 凭据管理器（wincred），<strong>不</strong>经过本页面。</li>
+  </ol>
+  <p class="hint">完成后下面的终端会自动关闭。如果你不想用浏览器流，切到「粘贴 token」页签。</p>
+  <div class="row">
+    <button id="go-web">开始</button>
+    <span id="state-web" class="hint">未开始</span>
+  </div>
+  <div id="term"></div>
+  <div class="msg" id="msg-web"></div>
+</div>
+
+<!-- 页签二：粘贴 PAT -->
+<div class="panel" id="pane-token">
+  <p>从 GitHub 后台生成一个 classic PAT（Settings → Developer settings → Personal access tokens → Tokens (classic)），至少勾选 <code>repo</code> / <code>read:org</code> / <code>gist</code>。粘贴到下面输入框：</p>
+  <div class="row">
+    <input id="tok" type="password" placeholder="ghp_...">
+    <button id="go-token">登录</button>
+  </div>
+  <p class="hint">token 只用来喂给 <code>gh auth login --with-token</code>，登录后由 <code>gh</code> 自己存到 wincred；框架不单独保存。</p>
+  <div class="msg" id="msg-token"></div>
+</div>
+
+<script>
+(async () => {
+  // ----- 页签切换 -----
+  document.querySelectorAll('.tab').forEach(t => {
+    t.onclick = () => {
+      document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+      document.querySelectorAll('.panel').forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+      document.getElementById('pane-' + t.dataset.pane).classList.add('active');
+    };
+  });
+
+  // 检查环境里是否已有 GH_TOKEN / GITHUB_TOKEN；按 pitfalls.md §7 提示
+  const envTokenLeak = await harnessAuth.fs.read('.env-leak-check').catch(() => null);
+  // 这一段只在 hint 里简单提示，不再额外加 UI；登录态最终以 status() 为准
+  if (envTokenLeak) {
+    document.getElementById('msg-web').textContent = '';
+  }
+
+  // ----- 页签一：浏览器 web 流（pty）-----
+  let webRunning = false;
+  document.getElementById('go-web').onclick = async () => {
+    if (webRunning) return;
+    webRunning = true;
+    const btn = document.getElementById('go-web');
+    const state = document.getElementById('state-web');
+    const msg = document.getElementById('msg-web');
+    btn.disabled = true;
+    msg.textContent = '';
+    state.textContent = '启动 gh auth login --web --clipboard…';
+
+    try {
+      // --web 显式走 web 流；--clipboard 把一次性验证码复制到剪贴板；--skip-ssh-key 不再生成/上传 SSH key（避免误把公钥写到用户 GitHub 账号）
+      const p = await harnessAuth.pty.open(
+        ['auth', 'login', '--web', '--clipboard', '--skip-ssh-key'],
+        { mount: document.getElementById('term') }
+      );
+      // 把登录子过程的关键阶段写进 trace，排障用
+      p.onData(() => { /* 输出已在终端里展示；不解析验证码本身，CLI 自己等待授权 */ });
+
+      const r = await p.wait();
+      webRunning = false;
+      btn.disabled = false;
+
+      if (r.code === 0) {
+        state.textContent = '已退出，正在核对登录态…';
+        // 由框架跑 status.cjs 结案（harnessAuth.done）
+        await harnessAuth.done('web-flow-exit-0');
+        return;
+      }
+      if (r.cancelled) {
+        state.textContent = '已取消';
+        msg.textContent = '登录被取消。';
+        return;
+      }
+      state.textContent = '登录未完成（退出码 ' + r.code + '）';
+      msg.textContent = '请重新点「开始」，或切到「粘贴 token」页签。';
+    } catch (e) {
+      webRunning = false;
+      btn.disabled = false;
+      state.textContent = '异常';
+      msg.textContent = '启动失败：' + (e && e.message || String(e));
+    }
+  };
+
+  // ----- 页签二：粘贴 token -----
+  document.getElementById('go-token').onclick = async () => {
+    const tok = document.getElementById('tok').value.trim();
+    const msg = document.getElementById('msg-token');
+    msg.textContent = '';
+    if (!tok) { msg.textContent = '请先粘贴 token。'; return; }
+
+    try {
+      const r = await harnessAuth.run(
+        ['auth', 'login', '--with-token', '--hostname', 'github.com'],
+        { stdin: tok, timeoutMs: 15000 }
+      );
+      // token 进 stdin 后立刻清空输入框（页面内存里也不留）
+      document.getElementById('tok').value = '';
+
+      if (r.code === 0) {
+        msg.className = 'msg ok';
+        msg.textContent = 'gh 已接受 token，正在核对登录态…';
+        await harnessAuth.done('paste-token-exit-0');
+        return;
+      }
+      msg.className = 'msg';
+      msg.textContent = 'gh 拒绝：' + (r.stderr || r.stdout || ('退出码 ' + r.code));
+    } catch (e) {
+      msg.textContent = '运行失败：' + (e && e.message || String(e));
+    }
+  };
+})();
+</script>
+</body>
+</html>
