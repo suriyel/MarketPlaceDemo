@@ -1,0 +1,38 @@
+# after-login · 2026-10-11T18:37:39.689Z
+$ <bin> auth status   (exit 0, 746ms)
+--- stdout
+github.com
+  ✓ Logged in to github.com account suriyel (keyring)
+  - Active account: true
+  - Git operations protocol: https
+  - ***
+  - Token scopes: 'gist', 'read:org', 'repo', 'workflow'
+--- stderr
+
+
+=== 登录终端末段（可见文字）
+7                                                                                            8? What is your preferred protocol for Git operations on this host?  [Use arrows to move, type to filter]
+> HTTPS
+  SSH
+7                                                                                            87                                                                                            87                                                                                            87                                                                                            87                                                                                            8? What is your preferred protocol for Git operations on this host?  [Use arrows to move, type to filter]
+  HTTPS
+> SSH
+7                                                                                            87                                                                                            87                                                                                            87                                                                                            87                                                                                            8? What is your preferred protocol for Git operations on this host?  [Use arrows to move, type to filter]
+> HTTPS
+  SSH
+7                                                                                            87                                                                                            87                                                                                            87                                                                                            87                                                                                            8? What is your preferred protocol for Git operations on this host?  [Use arrows to move, type to filter]
+  HTTPS
+> SSH
+7                                                                                            87                                                                                            87                                                                                            87                                                                                            87                                                                                            8? What is your preferred protocol for Git operations on this host?  [Use arrows to move, type to filter]
+> HTTPS
+  SSH
+7                                                                                            87                                                                                            87                                                                                            87                                                                                            87                                                                                            8? What is your preferred protocol for Git operations on this host? HTTPS
+7                                                                                            8? Authenticate Git with your GitHub credentials? (Y/n) Y7                                                                                            8? Authenticate Git with your GitHub credentials? Yes
+
+! One-time code (B1B0-8677) copied to clipboard
+Press Enter to open https://github.com/login/device in your browser... 
+✓ Authentication complete.
+- gh config set -h github.com git_protocol https
+✓ Configured git protocol
+✓ Logged in as suriyel
+! You were already logged in to this account

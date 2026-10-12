@@ -1,0 +1,11 @@
+# before-login · 2026-10-11T18:36:48.505Z
+$ <bin> auth status   (exit 0, 699ms)
+--- stdout
+github.com
+  ✓ Logged in to github.com account suriyel (keyring)
+  - Active account: true
+  - Git operations protocol: https
+  - ***
+  - Token scopes: 'gist', 'read:org', 'repo', 'workflow'
+--- stderr
+
