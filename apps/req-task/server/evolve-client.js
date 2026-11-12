@@ -40,10 +40,20 @@ function createEvolveClient(o) {
   async function authz() {
     const me = await o.identity();
     if (!cached) cached = readToken();
-    if (cached && cached.installId === me.installId && cached.token) return 'ReqInstall ' + cached.installId + '.' + cached.token;
+    if (cached && cached.installId === me.installId && cached.token) {
+      const h = 'ReqInstall ' + cached.installId + '.' + cached.token;
+      // 工号是启动后 30 s 才在后台取到的：首次登记早于它 ⇒ 当时按「用户名@主机名」登记了。一旦拿到工号就带令牌重登一次，
+      // 服务端当场改挂到 uid:（不等 5 分钟一次的心跳同步），免得管理员这期间按旧身份指派而悬空。
+      if (me.uid && cached.uid !== me.uid) {
+        await json('POST', '/req/client/register', { installId: me.installId, uid: me.uid, user: me.user, host: me.host, appVersion: me.appVersion }, h);
+        cached.uid = me.uid;
+        writeToken(cached);
+      }
+      return h;
+    }
     const r = await json('POST', '/req/client/register', { installId: me.installId, uid: me.uid || null, user: me.user, host: me.host, appVersion: me.appVersion });
     if (!r.token) throw new EvolveError(409, 'already_registered');
-    cached = { installId: me.installId, token: r.token };
+    cached = { installId: me.installId, token: r.token, uid: me.uid || null };
     writeToken(cached);
     return 'ReqInstall ' + cached.installId + '.' + cached.token;
   }
