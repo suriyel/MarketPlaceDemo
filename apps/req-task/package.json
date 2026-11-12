@@ -1,0 +1,8 @@
+{
+  "name": "cancong-app-req-task",
+  "private": true,
+  "description": "需求任务应用（蚕丛市场发布）。npm test = 单测。运行时依赖由蚕丛提供，不需要 npm install。",
+  "scripts": {
+    "test": "node -r ../../app-sdk/runtime/v1/boot.js --test --test-timeout=60000 __tests__/*.test.js"
+  }
+}

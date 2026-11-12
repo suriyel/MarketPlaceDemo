@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 1,
   "blueprints": [
     {
       "id": "co-iterative-verify",
@@ -57,6 +57,28 @@
       "author": "shannon",
       "tags": [],
       "kind": "generic",
+      "ext": {}
+    }
+  ],
+  "apps": [
+    {
+      "id": "req-task",
+      "title": {
+        "zh": "需求任务",
+        "en": "Requirement tasks"
+      },
+      "description": "需求研发看板（设计→开发→测试→验证）的个人端：接收分派给我的步骤（材料自动导入、预填工作流任务）、做完经分享向导交付回传、可打回上游；在线状态与催办随自进化服务同步。",
+      "version": "0.1.0",
+      "author": "cancong",
+      "tags": [
+        "req-flow"
+      ],
+      "api": 1,
+      "minCancong": "0.1.1",
+      "sdk": "1.9.0",
+      "blueprints": [
+        "req-task-free-run"
+      ],
       "ext": {}
     }
   ]
