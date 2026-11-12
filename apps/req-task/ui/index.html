@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Requirement tasks</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <header class="bar">
+    <strong id="title"></strong>
+    <span id="me" class="muted"></span>
+    <span id="server" class="pill"></span>
+    <span class="grow"></span>
+    <button type="button" id="refresh" data-testid="rt-refresh"></button>
+    <button type="button" id="settings-btn" data-testid="rt-settings"></button>
+  </header>
+  <section id="settings" class="panel" hidden></section>
+  <section id="consent" class="panel warn" hidden data-testid="rt-consent">
+    <p id="consent-text"></p>
+    <button type="button" id="consent-ok" class="primary" data-testid="rt-consent-ok"></button>
+  </section>
+  <div id="msg" class="msg" hidden data-testid="rt-msg"></div>
+  <main id="list"></main>
+  <p id="empty" class="muted" hidden data-testid="rt-empty"></p>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

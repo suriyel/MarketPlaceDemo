@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 3,
+  "id": "req-task-free-run",
+  "version": "0.1.0",
+  "title": "自由执行",
+  "description": "需求任务随包工作流：单节点，开局读工作目录 .req/ 下的需求材料与上一步交付，之后完全由人驱动。模板里不想绑专门工作流的步骤就用它——任务里人的每个决策照样被记录。",
+  "startNode": "run",
+  "nodes": [
+    { "id": "run", "title": "执行", "x": 200, "y": 200,
+      "skill": { "sourceTemplate": "(user)/run", "sourceVersion": null, "lastSyncedAt": null } }
+  ],
+  "edges": [],
+  "tags": ["req-flow"]
+}
