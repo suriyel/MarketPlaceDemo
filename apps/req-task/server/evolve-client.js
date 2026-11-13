@@ -40,10 +40,20 @@ function createEvolveClient(o) {
   async function authz() {
     const me = await o.identity();
     if (!cached) cached = readToken();
-    if (cached && cached.installId === me.installId && cached.token) return 'ReqInstall ' + cached.installId + '.' + cached.token;
+    if (cached && cached.installId === me.installId && cached.token) {
+      const h = 'ReqInstall ' + cached.installId + '.' + cached.token;
+      // 工号是启动后 30 s 才在后台取到的：首次登记早于它 ⇒ 当时按「用户名@主机名」登记了。一旦拿到工号就带令牌重登一次，
+      // 服务端当场改挂到 uid:（不等 5 分钟一次的心跳同步），免得管理员这期间按旧身份指派而悬空。
+      if (me.uid && cached.uid !== me.uid) {
+        await json('POST', '/req/client/register', { installId: me.installId, uid: me.uid, user: me.user, host: me.host, appVersion: me.appVersion }, h);
+        cached.uid = me.uid;
+        writeToken(cached);
+      }
+      return h;
+    }
     const r = await json('POST', '/req/client/register', { installId: me.installId, uid: me.uid || null, user: me.user, host: me.host, appVersion: me.appVersion });
     if (!r.token) throw new EvolveError(409, 'already_registered');
-    cached = { installId: me.installId, token: r.token };
+    cached = { installId: me.installId, token: r.token, uid: me.uid || null };
     writeToken(cached);
     return 'ReqInstall ' + cached.installId + '.' + cached.token;
   }
@@ -54,6 +64,17 @@ function createEvolveClient(o) {
       cached = null; try { fs.rmSync(tokenFile, { force: true }); } catch (_) { /* 已不在 */ }
       return json(method, p, body, await authz());
     }
+  }
+
+  /** 设置页「测试连接」：打公开的 GET /v1/meta（不登记、不带令牌；§17.5）@param {string} [origin] 不给 = 当前生效地址 */
+  async function meta(origin) {
+    const b = origin ? String(origin).replace(/\/+$/, '') : base();
+    let res;
+    try { res = await fetch(b + '/v1/meta', { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(10000) }); }
+    catch (e) { throw new EvolveError(0, 'unreachable', { detail: e && e.message }); }
+    const j = await res.json().catch(() => null);
+    if (!res.ok || !j || j.service !== 'cancong-evolve') throw new EvolveError(res.status, 'not_evolve');
+    return { service: j.service, version: j.version || null };
   }
 
   const step = (flowId, key) => '/req/client/steps/' + encodeURIComponent(flowId) + '/' + encodeURIComponent(key);
@@ -95,6 +116,9 @@ function createEvolveClient(o) {
     claim: (flowId, key, cwd) => call('POST', step(flowId, key) + '/claim', { cwd }),
     inputs: (flowId, key) => call('GET', step(flowId, key) + '/inputs'),
     deliver: (flowId, key, body) => call('POST', step(flowId, key) + '/deliveries', body),
+    workflowState: (flowId, key, body) => call('POST', step(flowId, key) + '/workflow', body),
+    progress: (flowId, key, body) => call('POST', step(flowId, key) + '/progress', body),
+    meta,
     ackNudge: (id) => call('POST', '/req/client/nudges/' + encodeURIComponent(id) + '/ack', {}),
     download, putPackage, authz,
   };
