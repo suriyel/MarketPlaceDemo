@@ -2,13 +2,14 @@
   "id": "req-task",
   "title": { "zh": "需求任务", "en": "Requirement tasks" },
   "description": "需求研发看板（设计→开发→测试→验证）的个人端：接收分派给我的步骤（材料自动导入、预填工作流任务）、做完经分享向导交付回传、可打回上游；在线状态与催办随自进化服务同步。",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "api": 1,
   "minCancong": "0.1.1",
-  "sdk": "1.9.0",
+  "sdk": "1.10.0",
   "server": { "entry": "server/index.js" },
   "nav": { "icon": "ui/icon.svg", "order": 20 },
   "blueprints": ["req-task-free-run"],
+  "permissions": ["blueprints.install"],
   "author": "cancong",
   "tags": ["req-flow"]
 }

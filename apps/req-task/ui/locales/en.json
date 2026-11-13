@@ -14,6 +14,8 @@
   "rt.group.other": "Delivered / ended",
   "rt.card.step": "Step \"{step}\" · round {round} · {tpl}",
   "rt.card.prev": "Previous step \"{step}\" delivered by {who}",
+  "rt.card.prevWaiting": "Waiting for the previous step \"{step}\" ({who})",
+  "rt.card.stepNotYet": "Step \"{step}\" · not started · {tpl}",
   "rt.card.rework": "Sent back by {from}: {reason}",
   "rt.card.admin": "the admin",
   "rt.card.cwd": "Working directory: {cwd}",
@@ -68,5 +70,18 @@
   "rt.err.uiNotConnected": "The cancong main window is not open, so the interactive task cannot start",
   "rt.err.projectFull": "A task is already running in this directory",
   "rt.err.blueprintMissing": "The workflow does not exist; install it first",
-  "rt.err.generic": "Failed: {code}"
+  "rt.err.generic": "Failed: {code}",
+  "rt.err.workflowNotReady": "The workflow for this step is not installed yet; click \"Retry install\" first",
+  "rt.wf.retry": "Retry installing the workflow",
+  "rt.wf.ready": "The workflow is ready; you can start the task",
+  "rt.wf.notReady": "Workflow {id} is not ready: {why}",
+  "rt.wf.keptLocal": "Using your local workflow {id} as you chose (it differs from the marketplace version)",
+  "rt.wf.consentDenied": "you did not agree to install from this marketplace",
+  "rt.wf.authRequired": "the marketplace requires signing in; sign in from the Cancong dialog when you retry",
+  "rt.wf.fetchFailed": "cannot reach the workflow marketplace; check the network and retry",
+  "rt.wf.notInMarket": "the marketplace does not have this workflow; contact the administrator",
+  "rt.wf.noUi": "the Cancong main window is not open; open it and retry",
+  "rt.wf.installFailed": "installation failed ({code}); please retry",
+  "rt.err.runKeyBusy": "The previous task for this step is still running; try again shortly or stop it from the Cancong task bar",
+  "rt.wf.notOnClient": "this workflow is in the server's library but not on this machine (upgrade Cancong or install it, then retry)"
 }
