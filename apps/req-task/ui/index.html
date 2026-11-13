@@ -15,14 +15,15 @@
     <button type="button" id="refresh" data-testid="rt-refresh"></button>
     <button type="button" id="settings-btn" data-testid="rt-settings"></button>
   </header>
-  <section id="settings" class="panel" hidden></section>
   <section id="consent" class="panel warn" hidden data-testid="rt-consent">
     <p id="consent-text"></p>
     <button type="button" id="consent-ok" class="primary" data-testid="rt-consent-ok"></button>
   </section>
   <div id="msg" class="msg" hidden data-testid="rt-msg"></div>
-  <main id="list"></main>
-  <p id="empty" class="muted" hidden data-testid="rt-empty"></p>
+  <div class="layout">
+    <nav id="list" class="list" data-testid="rt-list"></nav>
+    <main id="detail" class="detail" data-testid="rt-detail"></main>
+  </div>
   <script type="module" src="app.js"></script>
 </body>
 </html>
