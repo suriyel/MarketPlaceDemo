@@ -51,6 +51,7 @@ function errText(code) {
     case 'ui_not_connected': return t('rt.err.uiNotConnected');
     case 'project_full': return t('rt.err.projectFull');
     case 'blueprint_not_found': return t('rt.err.blueprintMissing');
+    case 'workflow_not_ready': return t('rt.err.workflowNotReady');
     default: return t('rt.err.generic', { code: code || '?' });
   }
 }
@@ -72,6 +73,18 @@ function statusText(task) {
 
 const keyOf = (task) => task.flowId + ':' + task.stepKey;
 
+/** 自动装工作流失败的原因（平台错误码 → 人话；docs/REQ-FLOW-DESIGN.md §16.6） */
+function wfWhy(code) {
+  switch (code) {
+    case 'consent_denied': return t('rt.wf.consentDenied');
+    case 'market_auth_required': return t('rt.wf.authRequired');
+    case 'market_fetch_failed': return t('rt.wf.fetchFailed');
+    case 'not_in_market': return t('rt.wf.notInMarket');
+    case 'ui_not_connected': return t('rt.wf.noUi');
+    default: return t('rt.wf.installFailed', { code: code || '' });
+  }
+}
+
 function card(task) {
   const k = keyOf(task);
   const l = task.local;
@@ -88,8 +101,11 @@ function card(task) {
     ops.append(dir);
     btn(t('rt.receive.btn'), () => receive(task, dir.value.trim()), true, 'rt-receive');
   }
+  const wfBad = !!(l && l.wf && l.wf.state === 'failed');
   if (live && mine && (!l || l.state === 'received')) {
-    btn(t('rt.start.btn'), () => { drafts.set(k, { kind: 'start', prompt: null }); render(); }, true, 'rt-start-open');
+    // 工作流没装上：先「重试安装」（市场要登录 / 新市场确认由蚕丛弹窗），装好才出「启动任务」
+    if (wfBad) btn(t('rt.wf.retry'), () => retryWf(task), true, 'rt-retry-wf');
+    else btn(t('rt.start.btn'), () => { drafts.set(k, { kind: 'start', prompt: null }); render(); }, true, 'rt-start-open');
   }
   if (mine && l && l.cwd && l.runId) btn(t('rt.view.btn'), () => bridge.openRun({ cwd: l.cwd, runId: l.runId }), false, 'rt-open-run');
   if (live && mine && l && (l.state === 'running' || l.state === 'run_done' || l.state === 'received')) {
@@ -100,21 +116,26 @@ function card(task) {
   const steps = h('div', { class: 'steps' }, ...(task.steps || []).map((s) => h('span', {
     class: s.key === task.stepKey ? 'cur' : (s.status === 'delivered' ? 'done' : null) }, s.name + (s.round > 1 ? ' R' + s.round : ''))));
   const notes = [];
-  if (task.prev) notes.push(t('rt.card.prev', { step: task.prev.name, who: task.prev.owner }));
+  if (task.prev) notes.push(task.prev.deliveredAt ? t('rt.card.prev', { step: task.prev.name, who: task.prev.owner })
+    : t('rt.card.prevWaiting', { step: task.prev.name, who: task.prev.owner }));
   if (task.round > 1 && task.lastRework && task.lastRework.targetName === task.stepName) {
     notes.push(t('rt.card.rework', { from: task.lastRework.fromName || t('rt.card.admin'), reason: task.lastRework.reason || '' }));
   }
   if (task.stepDesc) notes.push(task.stepDesc);
   if (l && l.cwd) notes.push(t('rt.card.cwd', { cwd: l.cwd }));
+  if (wfBad) notes.push(t('rt.wf.notReady', { id: l.wf.id || task.blueprintId, why: wfWhy(l.wf.code) }));
+  else if (l && l.wf && l.wf.state === 'kept-local') notes.push(t('rt.wf.keptLocal', { id: l.wf.id || task.blueprintId }));
 
   const box = h('div', { class: 'card' + (task.status === 'ready' && live ? ' ready' : '') + (task.round > 1 && task.status !== 'delivered' ? ' rework' : '')
     + (focus === k ? ' hl' : ''), 'data-testid': 'rt-card', 'data-flow': task.flowId, 'data-step': task.stepKey, 'data-status': task.status },
   h('div', { class: 'head' }, h('span', { class: 'req' }, task.reqId), h('span', { class: 'title' }, task.reqTitle || ''),
     h('span', { class: 'pill', 'data-testid': 'rt-status' }, statusText(task))),
-  h('div', { class: 'meta' }, t('rt.card.step', { step: task.stepName, round: task.round, tpl: task.templateName || '' })),
+  h('div', { class: 'meta' }, task.round > 0 ? t('rt.card.step', { step: task.stepName, round: task.round, tpl: task.templateName || '' })
+    : t('rt.card.stepNotYet', { step: task.stepName, tpl: task.templateName || '' })),
   steps, ...notes.map((n) => h('div', { class: 'note' }, n)), ops);
-  if (d && d.kind === 'start') box.append(startForm(task, d));
-  if (d && d.kind === 'rework') box.append(reworkForm(task, d));
+  // 草稿表单只在流程进行中出（暂停 / 取消后残留的确认框不能再点）
+  if (live && d && d.kind === 'start' && !wfBad) box.append(startForm(task, d));
+  if (live && d && d.kind === 'rework') box.append(reworkForm(task, d));
   return box;
 }
 
@@ -196,6 +217,12 @@ async function receive(task, dir) {
   if (r) { drafts.set(k, { kind: 'start', prefill: r.prefill, prompt: null, blueprintMissing: r.blueprintMissing }); render(); }
 }
 
+async function retryWf(task) {
+  const r = await guard(() => api(`api/tasks/${task.flowId}/${task.stepKey}/retry-workflow`, {}), null);
+  if (r && r.wf && r.wf.state === 'failed') say(t('rt.wf.notReady', { id: r.wf.id, why: wfWhy(r.wf.code) }), 'err');
+  else if (r) { say(t('rt.wf.ready'), 'ok'); drafts.set(keyOf(task), { kind: 'start', prompt: null }); render(); }
+}
+
 async function start(task, prompt, prefill) {
   const r = await guard(() => api(`api/tasks/${task.flowId}/${task.stepKey}/start`, { prompt, prefill }), t('rt.start.done'));
   if (r) { drafts.delete(keyOf(task)); render(); }
@@ -215,6 +242,7 @@ async function rework(task, targetKey, reason, attach) {
   let s = null;
   if (attach) {
     const l = task.local;
+    say(t('rt.deliver.wizard'), 'ok');
     s = await bridge.share({ cwd: l.cwd, runIds: l.runId ? [l.runId] : undefined });
     if (!s || !s.ok) { say(t('rt.deliver.cancelled'), 'err'); return; }
   }
