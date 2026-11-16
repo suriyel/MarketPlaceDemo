@@ -60,6 +60,8 @@ h4 { margin: 0 0 10px; font-size: 12px; color: var(--text-2); }
 .kv { display: flex; gap: 10px; align-items: baseline; margin: 5px 0; flex-wrap: wrap; }
 .kv .k { flex: none; width: 84px; color: var(--muted); font-size: 13px; }
 .kv input { flex: 1 1 320px; width: auto; }
+.pathrow { display: flex; gap: 8px; align-items: center; }
+.pathrow input { flex: 1; min-width: 0; }
 .nodes { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; }
 .node { padding: 4px 11px; border-radius: 14px; font-size: 13px; border: 1px dashed var(--line); color: var(--muted); }
 .node.done { border-style: solid; color: var(--ok); background: var(--ok-bg); }

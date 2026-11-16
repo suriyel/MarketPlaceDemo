@@ -64,6 +64,7 @@ function errText(code) {
     case 'blueprint_not_found': return t('rt.err.blueprintMissing');
     case 'workflow_not_ready': return t('rt.err.workflowNotReady');
     case 'run_key_busy': return t('rt.err.runKeyBusy');
+    case 'node_unavailable': return t('rt.err.nodeUnavailable');
     default: return t('rt.err.generic', { code: code || '?' });
   }
 }
@@ -187,20 +188,56 @@ function stepChain(task) {
   return sec;
 }
 
+// 「浏览…」：弹蚕丛自己的选目录窗（盘符 / 逐级进出 / 新建文件夹）。桥由宿主提供，老蚕丛没有 pickDir ⇒ 不出按钮，照旧手填
+function browseBtn(testid, initial, onPicked) {
+  if (typeof bridge.pickDir !== 'function') return null;
+  return h('button', { type: 'button', 'data-testid': testid, onclick: async () => {
+    const p = await bridge.pickDir({ initialPath: initial(), title: t('rt.common.pickDir') });
+    if (p) onPicked(p);
+  } }, t('rt.common.browse'));
+}
+
 function receivePanel(task) {
   const k = keyOf(task);
   const d = drafts.get(k) || {};
   const sec = h('section', { class: 'panel accent', 'data-testid': 'rt-receive-panel' }, h('h4', null, t('rt.receive.title')));
   const dirRow = h('div', { class: 'kv' }, h('span', { class: 'k' }, t('rt.common.cwd')));
+  // 运行位置：蚕丛里连着节点时才出这一行。选了节点 ⇒ 工作目录是节点上的绝对路径（手填，记住上次用的上级目录）
+  const nodes = (S && S.nodes) || [];
+  const node = d.node && nodes.some((n) => n.id === d.node && n.ok) ? d.node : '';
+  let locRow = null;
+  if (nodes.length) {
+    const sel = h('select', { 'data-testid': 'rt-location' }, h('option', { value: '' }, t('rt.loc.local')),
+      ...nodes.map((n) => { const o = h('option', { value: n.id }, n.shared ? t('rt.loc.shared', { label: n.label }) : n.label); o.disabled = !n.ok; return o; }));
+    sel.value = node;
+    sel.addEventListener('change', () => { drafts.set(k, Object.assign({}, drafts.get(k) || {}, { node: sel.value, nodeDir: null })); render(); });
+    locRow = h('div', { class: 'kv' }, h('span', { class: 'k' }, t('rt.loc.title')), sel,
+      nodes.some((n) => !n.ok) ? h('span', { class: 'muted small' }, t('rt.loc.someOff')) : '');
+  }
+  if (node) {
+    const last = (nodes.find((n) => n.id === node) || {}).lastDir || '';
+    const dir = h('input', { type: 'text', value: d.nodeDir != null ? d.nodeDir : (last ? last.replace(/[\\/]+$/, '') + '/' + task.reqId : ''), placeholder: t('rt.loc.dirPh'), 'data-testid': 'rt-node-dir' });
+    dir.addEventListener('input', () => drafts.set(k, Object.assign(drafts.get(k) || {}, { nodeDir: dir.value })));
+    dirRow.append(dir);
+    sec.append(locRow, dirRow,
+      h('div', { class: 'kv' }, h('span', { class: 'k' }, t('rt.common.workflow')), h('span', { class: 'mono' }, task.blueprintId), h('span', { class: 'muted small' }, wfSource(task.blueprintSource))),
+      h('div', { class: 'kv' }, h('span', { class: 'k' }, t('rt.common.materials')), h('span', null, task.prev ? t('rt.receive.prev', { step: task.prev.name, who: task.prev.owner }) : t('rt.receive.first'))),
+      h('div', { class: 'muted small' }, t('rt.loc.hint')),
+      h('div', { class: 'ops' }, h('button', { type: 'button', class: 'primary', 'data-testid': 'rt-receive', onclick: () => receive(task, dir.value.trim(), node) }, t('rt.receive.btn'))));
+    return sec;
+  }
   if (d.editDir) {
     const dir = h('input', { type: 'text', value: d.dir != null ? d.dir : task.defaultCwd, placeholder: t('rt.receive.dirPh'), 'data-testid': 'rt-dir' });
     dir.addEventListener('input', () => drafts.set(k, Object.assign(drafts.get(k) || {}, { dir: dir.value })));
-    dirRow.append(dir);
+    dirRow.append(dir, browseBtn('rt-dir-browse', () => dir.value.trim() || task.defaultCwd || (S && S.workRoot) || '', (p) => {
+      dir.value = p;
+      drafts.set(k, Object.assign(drafts.get(k) || {}, { dir: p }));
+    }) || '');
   } else {
     dirRow.append(h('span', { class: 'mono', 'data-testid': 'rt-dir-value' }, task.defaultCwd || ''),
       h('button', { type: 'button', class: 'link', 'data-testid': 'rt-dir-edit', onclick: () => { drafts.set(k, Object.assign({}, d, { editDir: true })); render(); } }, t('rt.receive.change')));
   }
-  sec.append(dirRow,
+  sec.append(locRow || '', dirRow,
     h('div', { class: 'kv' }, h('span', { class: 'k' }, t('rt.common.workflow')), h('span', { class: 'mono' }, task.blueprintId), h('span', { class: 'muted small' }, wfSource(task.blueprintSource))),
     h('div', { class: 'kv' }, h('span', { class: 'k' }, t('rt.common.materials')), h('span', null, task.prev ? t('rt.receive.prev', { step: task.prev.name, who: task.prev.owner }) : t('rt.receive.first'))),
     h('div', { class: 'ops' }, h('button', { type: 'button', class: 'primary', 'data-testid': 'rt-receive',
@@ -297,7 +334,9 @@ function reworkForm(task, d) {
 function materials(task) {
   const l = task.local;
   const rows = [];
-  if (l && l.cwd) rows.push(h('div', { class: 'kv' }, h('span', { class: 'k' }, t('rt.common.cwd')), h('span', { class: 'mono', 'data-testid': 'rt-cwd' }, l.cwd)));
+  if (task.location) rows.push(h('div', { class: 'kv' }, h('span', { class: 'k' }, t('rt.loc.title')), h('span', { 'data-testid': 'rt-loc' },
+    (((S && S.nodes) || []).find((n) => n.id === task.location) || { label: task.location }).label)));
+  if (l && l.cwd) rows.push(h('div', { class: 'kv' }, h('span', { class: 'k' }, t('rt.common.cwd')), h('span', { class: 'mono', 'data-testid': 'rt-cwd' }, task.location ? l.cwd.replace(/^@[^:]+:/, '') : l.cwd)));
   if (l && l.cwd) rows.push(h('div', { class: 'kv' }, h('span', { class: 'k' }, t('rt.common.docs')), h('span', { class: 'mono' }, '.req/' + task.stepKey + '-r' + task.round + '/docs')));
   if (task.prev) rows.push(h('div', { class: 'kv' }, h('span', { class: 'k' }, t('rt.common.upstream')),
     h('span', null, task.prev.deliveredAt ? t('rt.card.prev', { step: task.prev.name, who: task.prev.owner }) : t('rt.card.prevWaiting', { step: task.prev.name, who: task.prev.owner }))));
@@ -356,7 +395,8 @@ function renderSettings() {
       d.test ? h('div', { class: 'small ' + (d.test.ok ? 'okc' : 'errc'), 'data-testid': 'rt-set-test-result' },
         d.test.ok ? t('rt.set.testOk', { origin: d.test.origin, v: d.test.version || '?' }) : errText(d.test.code)) : null,
       h('div', { class: 'ops' }, h('button', { type: 'button', 'data-testid': 'rt-set-test', onclick: () => testServer(d) }, t('rt.set.test')))),
-    h('section', { class: 'panel' }, h('h4', null, t('rt.set.root')), h('p', { class: 'muted small' }, t('rt.set.rootHelp')), root,
+    h('section', { class: 'panel' }, h('h4', null, t('rt.set.root')), h('p', { class: 'muted small' }, t('rt.set.rootHelp')),
+      h('div', { class: 'pathrow' }, root, browseBtn('rt-set-root-browse', () => root.value.trim() || s.workRootEffective || '', (p) => { root.value = p; d.workRoot = p; })),
       h('div', { class: 'small', 'data-testid': 'rt-set-root-effective' }, t('rt.set.rootEffective', { dir: s.workRootEffective || '' }))),
     h('div', { class: 'ops' },
       h('button', { type: 'button', class: 'primary', 'data-testid': 'rt-set-save', onclick: () => saveSettings(d) }, t('rt.set.save')),
@@ -369,6 +409,7 @@ function render() {
   const srv = $('server');
   srv.textContent = S.online === false ? t('rt.bar.offline', { err: errText(S.error) }) : (S.online ? t('rt.bar.online') : t('rt.bar.connecting'));
   srv.className = 'pill ' + (S.online === false ? 'err' : (S.online ? 'ok' : ''));
+  srv.title = S.lastPollAt ? t('rt.bar.syncedAt', { at: new Date(S.lastPollAt).toLocaleTimeString() }) : '';
   $('consent').hidden = !!S.consent;
   // 选中项：导航来的 / 上次选的仍在 ⇒ 保持；否则选第一个待处理的
   const all = groups().flatMap((g) => g[1]);
@@ -384,19 +425,29 @@ function render() {
 }
 
 let pollTimer = null;
+let pulledAt = 0;
 async function load(refresh) {
-  const j = await api(refresh ? 'api/refresh' : 'api/state', refresh ? {} : undefined);
-  if (j.ok) S = j;
-  render();
-  // 选中任务在跑：5 s 刷新运行面板；否则 15 s
-  clearTimeout(pollTimer);
-  const cur = S && S.tasks.find((x) => keyOf(x) === sel);
-  const fast = cur && cur.local && cur.local.state === 'running';
-  schedule(fast ? 5000 : 15000);
+  try {
+    if (refresh) pulledAt = Date.now();
+    const j = await api(refresh ? 'api/refresh' : 'api/state', refresh ? {} : undefined);
+    if (j.ok) S = j;
+    render();
+  } catch (e) {
+    console.error('[req-task] load', e);
+  } finally {
+    // 无论这次成败（后台重启中连不上、渲染异常）都要续上定时刷新：断了就只能重开应用才看得到新任务
+    // 选中任务在跑：5 s 刷新运行面板；否则 15 s
+    clearTimeout(pollTimer);
+    const cur = S && S.tasks.find((x) => keyOf(x) === sel);
+    const fast = cur && cur.local && cur.local.state === 'running';
+    schedule(fast ? 5000 : 15000);
+  }
 }
 function schedule(ms) {
   pollTimer = setTimeout(() => { if (document.hidden) schedule(ms); else load(false); }, ms);
 }
+// 打开应用：让后台立刻去服务器拉一次（不等它自己的轮询），刚下发的任务一打开就在
+const pull = () => { if (Date.now() - pulledAt > 5000) load(true); };
 
 async function guard(fn, okText) {
   say(t('rt.common.working'), 'ok');
@@ -412,9 +463,9 @@ async function guard(fn, okText) {
   }
 }
 
-async function receive(task, dir) {
+async function receive(task, dir, node) {
   const k = keyOf(task);
-  const r = await guard(() => api(`api/tasks/${task.flowId}/${task.stepKey}/receive`, { cwd: dir }), t('rt.receive.done'));
+  const r = await guard(() => api(`api/tasks/${task.flowId}/${task.stepKey}/receive`, node ? { cwd: dir, node } : { cwd: dir }), t('rt.receive.done'));
   if (r) { drafts.set(k, { kind: 'start', prefill: r.prefill, prompt: null, blueprintMissing: r.blueprintMissing }); render(); }
 }
 
@@ -486,7 +537,9 @@ bridge.onInit(async (info) => {
   $('settings-btn').addEventListener('click', () => { if (mode === 'settings') { mode = 'task'; render(); } else openSettings(); });
   $('consent-ok').addEventListener('click', () => guard(() => api('api/consent', {})));
   await load(false);
+  pull();
 });
+bridge.onVisibility((visible) => { if (visible) pull(); });
 bridge.onNavigate((route) => {
   const m = /^task\/([^/]+)\/([^/]+)$/.exec(route || '');
   if (m) { sel = m[1] + ':' + m[2]; mode = 'task'; }

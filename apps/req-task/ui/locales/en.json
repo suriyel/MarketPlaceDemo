@@ -2,6 +2,7 @@
   "rt.title": "Requirement tasks",
   "rt.bar.me": "Me: {who}",
   "rt.bar.online": "Connected to the self-evolution server",
+  "rt.bar.syncedAt": "Last synced: {at}",
   "rt.bar.offline": "Not connected: {err}",
   "rt.bar.connecting": "Connecting…",
   "rt.bar.refresh": "Refresh",
@@ -103,6 +104,8 @@
   "rt.common.upstream": "Upstream delivery",
   "rt.common.stepDesc": "This step",
   "rt.common.close": "Close",
+  "rt.common.browse": "Browse…",
+  "rt.common.pickDir": "Choose a working directory",
   "rt.wf.srcMarket": "Target marketplace: installed / updated on receive",
   "rt.wf.srcServer": "Server workflow library: must already be on this machine",
   "rt.wf.srcApp": "Bundled with this app",
@@ -139,5 +142,12 @@
   "rt.set.rootHelp": "Each requirement gets <root>/<REQ id>; you can still change it when receiving. Saving checks the folder is writable.",
   "rt.set.rootEffective": "In effect: {dir}",
   "rt.set.save": "Save",
-  "rt.set.saved": "Settings saved"
+  "rt.set.saved": "Settings saved",
+  "rt.loc.title": "Run location",
+  "rt.loc.local": "This computer",
+  "rt.loc.shared": "{label} (shared node)",
+  "rt.loc.dirPh": "Working directory on the node (absolute path)",
+  "rt.loc.someOff": "Greyed-out nodes are disconnected or on a different version",
+  "rt.loc.hint": "Materials go into this directory on the node and the task runs there. Questions come back to cancong for you to answer; the delivery package is built on the node.",
+  "rt.err.nodeUnavailable": "The node is disconnected, on a different version, or did not pass the pre-dispatch check; see \"Nodes\" in cancong"
 }

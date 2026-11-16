@@ -4,18 +4,20 @@
 //   E   = 中转站客户端（evolve-client.js）
 //   db  = 本地台账（store.sqlite）
 //   runs = sdk.runs.tracker('req')
-// 轮询 60 s、不重入、连续 3 次失败判离线（照 CodeHub watcher）。接收 = 独占 → 下载材料 → 导入 → 预填任务；
+// 轮询 20 s（界面打开时另经 /api/refresh 立刻拉一次）、不重入、连续 3 次失败判离线（照 CodeHub watcher）。接收 = 独占 → 下载材料 → 导入 → 预填任务；
 // 交付 = 分享向导（界面经桥）→ 人工修改差异 → 两步上传。打回同理（可附带当前产物）。
 // 工作流（§16.6）：服务器下发了目标市场 ⇒ 接收时让蚕丛确保这一步的工作流已装且是市场最新版；装不上照常接收、拦启动、上报看板。
 // 工作目录（§17.5）：设置里的「工作目录根」+ <REQ 编号>，相对路径按根解析；与平台同口径校验，通过后才独占（claim）。
 // 运行进度（§17.4）：订阅平台 run 事件精确记录走过的节点，30 s 对账（getRun + 活会话数），状态变化去抖上报服务器看板。
+// 运行位置（TechDemos docs/NODE-TOPOLOGY-DISPATCH-DESIGN.md §5.12）：接收时可选一台已连的节点 ⇒ 工作目录记成节点限定目录
+//   `@<节点>:<节点上的绝对路径>`，材料放到节点目录、任务下发到节点、交付包在节点上打好再取回；其余流程不变。
 
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { nodeChain, applyEvent, sameReport } = require('./progress');
 
-const POLL_MS = 60 * 1000;
+const POLL_MS = 20 * 1000;
 const DOWN_AFTER = 3;
 const JOB_WAIT_MS = 15 * 60 * 1000;
 const FREE_RUN = 'req-task-free-run';   // 随本应用装的自由执行：不在市场里，不用 ensure
@@ -23,6 +25,10 @@ const RECONCILE_MS = 30 * 1000;
 const START_GRACE_MS = 60 * 1000;      // 刚起跑时会话还没挂上：这段时间不判「会话已断开」
 // 平台 normCwd 拒收的字符（server-config/os-adapter.js，Windows 逐段；Linux 只拒控制字符）
 const WIN_BAD_SEG = /[\x00-\x1f<>:"|?*&^%!()`]/;
+// 节点限定目录（与蚕丛页面里表示节点目录的写法同一种）
+const NODE_DIR = /^@([a-z0-9][a-z0-9_-]{0,39}):(.+)$/;
+const nodeOf = (cwd) => { const m = NODE_DIR.exec(String(cwd || '')); return m ? { node: m[1], path: m[2] } : null; };
+const NODE_ABS = /^(\/|[A-Za-z]:[\\/])/;
 
 function createCore(d) {
   const { P, E, db, runs, lang } = d;
@@ -34,6 +40,7 @@ function createCore(d) {
   const st = { me: null, tasks: [], nudges: [], market: null, online: null, fails: 0, error: null, lastPollAt: null, busy: false };
   let timer = null; let tick = null;
   const shownThisRun = new Set();   // 待办卡随应用进程清空 ⇒ 每次启动重推一遍；IM 只在第一次（落库）推
+  const seenThisRun = new Set();    // 日志：每条任务的每个状态每个进程只记一次「拉到」
 
   // ---- 台账 ----
   const COLS = 'flow_id AS flowId, step_key AS stepKey, round, req_id AS reqId, cwd, run_id AS runId, state, launch, wf, progress';
@@ -187,7 +194,8 @@ function createCore(d) {
           }
         }
       }
-      if ((next.status === 'running' || next.status === 'waiting_user') && typeof P.liveSessions === 'function'
+      // 节点上的任务没有本机会话：不拿本机的活会话数判「已断开」
+      if ((next.status === 'running' || next.status === 'waiting_user') && typeof P.liveSessions === 'function' && !nodeOf(l.cwd)
         && !(p.startedAt && now() - new Date(p.startedAt) < START_GRACE_MS)) {
         const n = await P.liveSessions(l.cwd).catch(() => null);
         const count = typeof n === 'number' ? n : (n && typeof n.count === 'number' ? n.count : null);
@@ -205,6 +213,14 @@ function createCore(d) {
       st.me = await P.me();
       const r = await E.tasks();
       st.tasks = r.tasks || []; st.nudges = r.nudges || []; st.market = r.market || null;
+      // 成功轮询不逐次记日志 ⇒ 只记转折（恢复 / 第一次拉到某条任务），排查「下发了看不到」时能分清是没拉到还是界面没刷
+      if (st.fails) log('[req-task] 轮询恢复（此前连续失败 ' + st.fails + ' 次）');
+      for (const t of st.tasks) {
+        const sk = keyOf(t) + ':' + t.status;
+        if (seenThisRun.has(sk)) continue;
+        seenThisRun.add(sk);
+        log('[req-task] 拉到任务 ' + t.reqId + ' · ' + t.stepName + ' · 第 ' + t.round + ' 轮（' + t.status + '）');
+      }
       st.fails = 0; st.online = true; st.error = null; st.lastPollAt = now().toISOString();
       await announce();
     } catch (e) {
@@ -223,8 +239,13 @@ function createCore(d) {
       const k = keyOf(t);
       if (shownThisRun.has(k)) continue;
       const first = !qNotified.get(k);
-      await P.notify({ kind: 'attention', key: 'task:' + k.replace(/[^A-Za-z0-9._:-]/g, '_'), route: 'task/' + t.flowId + '/' + t.stepKey,
-        text: (t.round > 1 ? T.reworkReady : T.newTask)(t), im: first }).catch(() => {});
+      // 平台暂时不可用（连不上 / 5xx）不记已推：下一轮再推，免得这条待办卡要等应用重启才出现；4xx 是推不进去的内容，重推也没用
+      const ok = await P.notify({ kind: 'attention', key: 'task:' + k.replace(/[^A-Za-z0-9._:-]/g, '_'), route: 'task/' + t.flowId + '/' + t.stepKey,
+        text: (t.round > 1 ? T.reworkReady : T.newTask)(t), im: first }).then(() => true, (e) => {
+        log('[req-task] 待办卡推送失败：' + (e.code || e.message));
+        return e.status >= 400 && e.status < 500;
+      });
+      if (!ok) continue;
       shownThisRun.add(k);
       if (first) addNotified.run(k, now().toISOString());
     }
@@ -263,7 +284,7 @@ function createCore(d) {
         const own = qSteps.all().filter((s) => s.flowId === t.flowId && s.stepKey === t.stepKey && s.runId).sort((a, b) => b.round - a.round)[0];
         return Object.assign({}, t, { local: l ? Object.assign({}, l, { wf: wfOf(l), progress: progOf(l) }) : null, ownRunId: own ? own.runId : null,
           // 接收面板的默认工作目录（绝对路径，§17 Q36）；本步运行面板的节点链（getBlueprint 缓存，未到为 null）
-          defaultCwd: path.join(workRoot(), t.reqId), chain: l && l.runId ? chainNow(t.blueprintId) : null });
+          defaultCwd: path.join(workRoot(), t.reqId), location: l && nodeOf(l.cwd) ? nodeOf(l.cwd).node : null, chain: l && l.runId ? chainNow(t.blueprintId) : null });
       }),
     };
   }
@@ -280,7 +301,8 @@ function createCore(d) {
     }
   }
 
-  // 交付物指纹 baseline（按工作目录记）：返工重走时上游新版据此覆盖本地没改过的同名文件（B7）
+  // 交付物指纹 baseline（按工作目录记）：返工重走时上游新版据此覆盖本地没改过的同名文件（B7）。
+  // 节点目录也一样（指纹由节点算）；老蚕丛导入到节点时不认它，照旧另存
   const baselineOf = (cwd) => { try { return JSON.parse(kvGet('baseline:' + cwd) || '{}'); } catch (_) { return {}; } };
   async function importPkg(url, name, cwd) {
     const zip = path.join(d.dataDir, 'inbox', name + '.zip');
@@ -297,10 +319,53 @@ function createCore(d) {
     } finally { try { fs.rmSync(zip, { force: true }); } catch (_) { /* 已删 */ } }
   }
 
-  async function receive(flowId, stepKey, input) {
+  /** 能当运行位置的节点（蚕丛里连着、与本机同版本的）；老蚕丛没有这个能力 ⇒ 空 */
+  let nodeCache = { at: 0, list: [] };
+  async function nodes() {
+    if (typeof P.nodes !== 'function') return [];
+    if (now() - nodeCache.at >= 5000) nodeCache = { at: +now(), list: (await P.nodes().catch(() => [])) || [] };
+    return nodeCache.list.map((n) => ({ id: n.id, label: n.label || n.id, shared: !!n.shared, ok: !!n.up && n.sameVersion !== false,
+      lastDir: kvGet('nodeRoot:' + n.id) || '' }));
+  }
+
+  // 接收到节点：材料经蚕丛放进节点目录（文档逐个放、上一步的包由节点导入）；目录合不合法由节点判
+  async function receiveOnNode(t, node, input) {
+    const dir = String(input || '').trim();
+    if (!NODE_ABS.test(dir)) throw fail('bad_cwd', { reason: dir });
+    if (typeof P.putFile !== 'function' || !(await nodes()).some((n) => n.id === node && n.ok)) throw fail('node_unavailable', { reason: node });
+    const cwd = '@' + node + ':' + dir;
+    const rel = '.req/' + t.stepKey + '-r' + t.round;
+    // 先往节点目录里落一个标记（目录不合法 / 节点不收在这里就失败），通过后才独占：不能把这一步白占了
+    await P.putFile(cwd, rel + '/received.json', JSON.stringify({ reqId: t.reqId, stepKey: t.stepKey, round: t.round, at: now().toISOString() }));
+    const claimed = t.status === 'active' && t.claimedByMe;
+    if (!claimed) await E.claim(t.flowId, t.stepKey, cwd);
+    const inp = await E.inputs(t.flowId, t.stepKey);
+    const tmp = path.join(d.dataDir, 'inbox', 'node-' + t.flowId + '-' + t.stepKey);
+    try {
+      for (const doc of inp.docs || []) {
+        const f = path.join(tmp, path.basename(String(doc.name)));
+        await E.download(doc.url, f);
+        await P.putFile(cwd, rel + '/docs/' + path.basename(String(doc.name)), fs.readFileSync(f));
+      }
+    } finally { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (_) { /* 已删 */ } }
+    for (const p of inp.deliveries || []) await importPkg(p.url, p.deliveryId, cwd);
+    if (inp.rework) {
+      const pkg = inp.rework.package ? Object.assign({}, inp.rework.package, { url: undefined }) : null;
+      await P.putFile(cwd, rel + '/rework.json', JSON.stringify(Object.assign({}, inp.rework, { package: pkg }), null, 2));
+      if (inp.rework.package) await importPkg(inp.rework.package.url, inp.rework.package.deliveryId, cwd);
+    }
+    kvSet('nodeRoot:' + node, dir.replace(/[\\/]+[^\\/]*$/, '') || dir);
+    return { cwd, inp };
+  }
+
+  async function receive(flowId, stepKey, input, node) {
     if (kvGet('consent') !== '1') throw fail('consent_required');
     const t = taskOf(flowId, stepKey);
     if (!t) throw fail('task_not_found');
+    if (node) {
+      const { cwd, inp } = await receiveOnNode(t, String(node), input);
+      return received(t, cwd, inp);
+    }
     // 先解析、校验，通过后才独占：根不合法时不能把这一步白占了（评审 I9）
     const cwd = resolveCwd(input, t.reqId);
     const bad = checkDir(cwd);
@@ -317,11 +382,17 @@ function createCore(d) {
       fs.writeFileSync(path.join(reqDir, 'rework.json'), JSON.stringify(Object.assign({}, inp.rework, { package: pkg }), null, 2));
       if (inp.rework.package) await importPkg(inp.rework.package.url, inp.rework.package.deliveryId, cwd);
     }
+    kvSet('lastRoot', path.dirname(cwd));
+    return received(t, cwd, inp);
+  }
+
+  // 材料就位之后（本机与节点同一段）：确保工作流已装（节点上的那份由蚕丛在下发前同步过去）、预填任务、落台账
+  async function received(t, cwd, inp) {
+    const { flowId, stepKey } = t;
     const wf = await ensureWorkflow(t);   // 装不上不回滚接收（Q30）：材料已就位，卡片显示原因、拦启动
     const prefill = prefillOf(t, inp);
     save({ flowId, stepKey, round: t.round, reqId: t.reqId, cwd, state: 'received', launch: { prefill }, wf });
-    kvSet('lastRoot', path.dirname(cwd));
-    await poll();   // 独占之后立刻刷新任务列表：否则缓存里仍是「待接收」，界面要等下一轮（60 s）才出交付 / 启动按钮
+    await poll();   // 独占之后立刻刷新任务列表：否则缓存里仍是「待接收」，界面要等下一轮轮询才出交付 / 启动按钮
     const bps = wf ? null : await P.listBlueprints().catch(() => []);
     return { ok: true, cwd, prefill, blueprintId: t.blueprintId, wf,
       blueprintMissing: wf ? wf.state === 'failed' : !bps.some((b) => b.id === t.blueprintId) };
@@ -384,7 +455,8 @@ function createCore(d) {
     const pre = prefill != null ? String(prefill) : ((l.launch && JSON.parse(l.launch).prefill) || '');
     const actual = String(prompt || '');
     const launch = { prefill: pre, actual, changed: actual !== pre };
-    const r = await runs.start(keyOf(t), { blueprintId: t.blueprintId, cwd: l.cwd, mode: 'interactive', prompt: actual,
+    // 节点上的任务由节点自己推进（无头），提问回到本机的蚕丛界面等人答
+    const r = await runs.start(keyOf(t), { blueprintId: t.blueprintId, cwd: l.cwd, mode: nodeOf(l.cwd) ? 'headless' : 'interactive', prompt: actual,
       owned: { label: t.reqId + ' · ' + t.stepName, route: 'task/' + flowId + '/' + stepKey,
         reqTask: Object.assign({ reqId: t.reqId, flowId, stepKey, stepName: String(t.stepName || '').slice(0, 64), round: t.round, templateId: t.templateId || '' },
           // 实际所用工作流版本（§16.6）：只在 ensure 过时带（老蚕丛不认这两个键）
@@ -414,8 +486,8 @@ function createCore(d) {
   }
 
   // ---- 交付 / 打回（包已由界面经桥在分享向导里生成 = shareId）----
-  async function uploadShare(deliveryId, shareId) {
-    const s = await P.sharePackage(shareId);
+  async function uploadShare(deliveryId, shareId, cwd) {
+    const s = await P.sharePackage(shareId, nodeOf(cwd) ? { cwd } : undefined);   // 包在节点上打的：字节经蚕丛从节点取回
     const bytes = Number(s.headers && s.headers['content-length']);
     if (!Number.isFinite(bytes) || bytes <= 0) { if (s.destroy) s.destroy(); throw fail('package_unreadable'); }
     return E.putPackage(deliveryId, s, bytes);
@@ -436,7 +508,7 @@ function createCore(d) {
       humanEdits, launch: l && l.launch ? JSON.parse(l.launch) : null,
       workflow: wf ? { id: wf.id, version: wf.version || null, localModified: !!wf.localModified, state: wf.state } : { id: t.blueprintId, version: null, localModified: null, state: null } };
     const r = await E.deliver(flowId, stepKey, { kind: 'deliver', meta });
-    const up = await uploadShare(r.deliveryId, b.shareId);
+    const up = await uploadShare(r.deliveryId, b.shareId, l && l.cwd);
     save({ flowId, stepKey, round: t.round, state: 'delivered' });
     await P.notify({ kind: 'attention-clear', key: 'deliver:' + flowId + ':' + stepKey }).catch(() => {});
     poll().catch(() => {});
@@ -449,7 +521,7 @@ function createCore(d) {
     if (!b || !String(b.reason || '').trim()) throw fail('reason_required');
     const r = await E.deliver(flowId, stepKey, { kind: 'rework', targetKey: b.targetKey, reason: b.reason, hasPackage: !!b.shareId,
       meta: b.shareId ? { picked: b.picked || null, excluded: b.excluded || null } : null });
-    if (b.shareId) await uploadShare(r.deliveryId, b.shareId);
+    if (b.shareId) { const l = local(t); await uploadShare(r.deliveryId, b.shareId, l && l.cwd); }
     save({ flowId, stepKey, round: t.round, state: 'reworked' });
     poll().catch(() => {});
     return { ok: true };
@@ -457,7 +529,7 @@ function createCore(d) {
 
   function consent() { kvSet('consent', '1'); return { ok: true }; }
 
-  return { poll, start, stop, view, receive, retryWorkflow, startRun, onRunSettled, onRunEvent, reconcile, deliver, rework, consent,
+  return { poll, start, stop, view, nodes, receive, retryWorkflow, startRun, onRunSettled, onRunEvent, reconcile, deliver, rework, consent,
     workRoot, checkDir, defaultRoot, _state: st };
 }
 

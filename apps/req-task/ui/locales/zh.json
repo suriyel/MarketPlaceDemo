@@ -2,6 +2,7 @@
   "rt.title": "需求任务",
   "rt.bar.me": "我：{who}",
   "rt.bar.online": "已连接自进化服务",
+  "rt.bar.syncedAt": "最近同步：{at}",
   "rt.bar.offline": "未连接：{err}",
   "rt.bar.connecting": "连接中…",
   "rt.bar.refresh": "刷新",
@@ -103,6 +104,8 @@
   "rt.common.upstream": "上游交付",
   "rt.common.stepDesc": "本步要做的",
   "rt.common.close": "关闭",
+  "rt.common.browse": "浏览…",
+  "rt.common.pickDir": "选择工作目录",
   "rt.wf.srcMarket": "目标市场：接收时自动安装 / 升级",
   "rt.wf.srcServer": "服务器工作流库：本机需已有",
   "rt.wf.srcApp": "随本应用安装",
@@ -139,5 +142,12 @@
   "rt.set.rootHelp": "每个需求在根下建一个子目录 <根>/<REQ 编号>；接收时也可以单独改。保存时检查能否写入。",
   "rt.set.rootEffective": "当前生效：{dir}",
   "rt.set.save": "保存",
-  "rt.set.saved": "设置已保存"
+  "rt.set.saved": "设置已保存",
+  "rt.loc.title": "运行位置",
+  "rt.loc.local": "本机",
+  "rt.loc.shared": "{label}（共享节点）",
+  "rt.loc.dirPh": "节点上的工作目录（绝对路径）",
+  "rt.loc.someOff": "灰掉的节点没连上或版本与本机不同",
+  "rt.loc.hint": "材料会放到节点的这个目录里，任务在节点上运行；提问会回到蚕丛里等你回答，交付时在节点上打包。",
+  "rt.err.nodeUnavailable": "节点没连上、版本与本机不同，或没有通过下发前的检查；到蚕丛「节点」里查看"
 }

@@ -36,7 +36,7 @@ const wrap = (fn) => async (req, res) => {
     res.status(e.status && e.status >= 400 ? e.status : 400).json({ ok: false, code, claimedHost: e.claimedHost || undefined, reason: e.reason || undefined });
   }
 };
-api.get('/state', wrap(async () => Object.assign({ ok: true }, core.view())));
+api.get('/state', wrap(async () => Object.assign({ ok: true }, core.view(), { nodes: await core.nodes() })));
 api.post('/refresh', wrap(async () => Object.assign({ ok: true }, await core.poll())));
 api.post('/consent', wrap(async () => core.consent()));
 
@@ -79,7 +79,7 @@ api.post('/settings/test', wrap(async (req) => {
   const m = await E.meta(u || undefined);
   return { ok: true, origin: u || origin(), version: m.version };
 }));
-api.post('/tasks/:flowId/:stepKey/receive', wrap((req) => core.receive(req.params.flowId, req.params.stepKey, (req.body || {}).cwd)));
+api.post('/tasks/:flowId/:stepKey/receive', wrap((req) => core.receive(req.params.flowId, req.params.stepKey, (req.body || {}).cwd, (req.body || {}).node || null)));
 api.post('/tasks/:flowId/:stepKey/retry-workflow', wrap((req) => core.retryWorkflow(req.params.flowId, req.params.stepKey)));
 api.post('/tasks/:flowId/:stepKey/start', wrap((req) => core.startRun(req.params.flowId, req.params.stepKey, (req.body || {}).prompt, (req.body || {}).prefill)));
 api.post('/tasks/:flowId/:stepKey/deliver', wrap((req) => core.deliver(req.params.flowId, req.params.stepKey, req.body || {})));
